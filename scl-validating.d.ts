@@ -1,5 +1,6 @@
 import { LitElement, TemplateResult } from 'lit';
 import '@material/mwc-button';
+import '@material/mwc-icon';
 import '@material/mwc-list';
 import { IssueDetail } from './foundation/utils.js';
 /** An editor [[`plugin`]] to configure validators and display their issue centrally */
