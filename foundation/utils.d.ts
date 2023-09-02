@@ -1,10 +1,7 @@
 export interface IssueDetail {
-    validatorId: string;
     title: string;
     message?: string;
 }
-export type IssueEvent = CustomEvent<IssueDetail>;
-export declare function newIssueEvent(detail: IssueDetail, eventInitDict?: CustomEventInit<IssueDetail>): IssueEvent;
 export interface ValidationError {
     file: string;
     line: number;
@@ -33,8 +30,3 @@ export type WorkerMessage = ValidationError | ValidationResult | LoadSchemaResul
 export declare function isValidationResult(msg: WorkerMessage): msg is ValidationResult;
 export declare function isValidationError(msg: WorkerMessage): msg is ValidationError;
 export declare function isLoadSchemaResult(msg: WorkerMessage): msg is LoadSchemaResult;
-declare global {
-    interface ElementEventMap {
-        ['issue']: IssueEvent;
-    }
-}

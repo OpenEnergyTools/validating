@@ -3094,16 +3094,6 @@ List = __decorate([
     e$5('mwc-list')
 ], List);
 
-function newIssueEvent(detail, 
-// eslint-disable-next-line no-undef
-eventInitDict) {
-    return new CustomEvent('issue', {
-        bubbles: true,
-        composed: true,
-        ...eventInitDict,
-        detail: { ...detail, ...eventInitDict === null || eventInitDict === void 0 ? void 0 : eventInitDict.detail },
-    });
-}
 function isValidationResult(msg) {
     return (typeof msg !== 'string' &&
         msg.file !== undefined &&
@@ -12406,47 +12396,9 @@ function getSchema(version, revision, release) {
 }
 
 const validators = {};
-async function getValidator(xsd, xsdName, dispatcher) {
-    if (!window.Worker)
-        throw new Error('Invalid schema');
-    if (validators[xsdName])
-        return validators[xsdName];
-    const worker = new Worker('/public/worker.js');
-    async function validate(xml, xmlName) {
-        return new Promise(resolve => {
-            worker.addEventListener('message', (e) => {
-                if (isValidationResult(e.data) && e.data.file === xmlName)
-                    resolve(e.data);
-            });
-            worker.postMessage({ content: xml, name: xmlName });
-        });
-    }
-    validators[xsdName] = validate;
-    return new Promise((resolve, reject) => {
-        worker.addEventListener('message', (e) => {
-            if (isLoadSchemaResult(e.data)) {
-                if (e.data.loaded)
-                    resolve(validate);
-                // eslint-disable-next-line prefer-promise-reject-errors
-                else
-                    reject('validator.schema.loadEror');
-            }
-            else if (isValidationError(e.data)) {
-                const parts = e.data.message.split(': ', 2);
-                const description = parts[1] ? parts[1] : parts[0];
-                const qualifiedTag = parts[1] ? ` (${parts[0]})` : '';
-                dispatcher.dispatchEvent(newIssueEvent({
-                    title: description,
-                    validatorId: 'Schema validator',
-                    message: `${e.data.file}:${e.data.line} ${e.data.node} ${e.data.part}${qualifiedTag}`,
-                }));
-            }
-        });
-        worker.postMessage({ content: xsd, name: xsdName });
-    });
-}
-async function validateSchema(doc, docName, dispatcher) {
+async function validateSchema(doc, docName) {
     var _a, _b, _c;
+    const issues = [];
     const fileName = docName;
     let version = '2007';
     let revision = 'B';
@@ -12457,39 +12409,374 @@ async function validateSchema(doc, docName, dispatcher) {
             (_b = doc.documentElement.getAttribute('revision')) !== null && _b !== void 0 ? _b : '',
             (_c = doc.documentElement.getAttribute('release')) !== null && _c !== void 0 ? _c : '',
         ];
-    const results = await getValidator(getSchema(version, revision, release), `SCL${version}${revision}${release}.xsd`, dispatcher).then(validator => validator(new XMLSerializer().serializeToString(doc), fileName));
-    if (results.valid)
-        dispatcher.dispatchEvent(newIssueEvent({
-            validatorId: 'Schema validator',
-            title: 'Project is schema valid',
-        }));
+    async function getValidator(xsd, xsdName) {
+        if (!window.Worker)
+            throw new Error('Invalid schema');
+        if (validators[xsdName])
+            return validators[xsdName];
+        const worker = new Worker('/public/worker.js');
+        async function validate(xml, xmlName) {
+            return new Promise(resolve => {
+                worker.addEventListener('message', (e) => {
+                    if (isValidationResult(e.data) && e.data.file === xmlName)
+                        resolve(e.data);
+                    else if (isValidationError(e.data)) {
+                        const parts = e.data.message.split(': ', 2);
+                        const description = parts[1] ? parts[1] : parts[0];
+                        const qualifiedTag = parts[1] ? ` (${parts[0]})` : '';
+                        issues.push({
+                            title: description,
+                            message: `${e.data.file}:${e.data.line} ${e.data.node} ${e.data.part}${qualifiedTag}`,
+                        });
+                    }
+                });
+                worker.postMessage({ content: xml, name: xmlName });
+            });
+        }
+        validators[xsdName] = validate;
+        return new Promise((resolve, reject) => {
+            worker.addEventListener('message', (e) => {
+                if (isLoadSchemaResult(e.data)) {
+                    if (e.data.loaded)
+                        resolve(validate);
+                    // eslint-disable-next-line prefer-promise-reject-errors
+                    else
+                        reject('validator.schema.loadEror');
+                }
+            });
+            worker.postMessage({ content: xsd, name: xsdName });
+        });
+    }
+    const validate = await getValidator(getSchema(version, revision, release), `SCL${version}${revision}${release}.xsd`);
+    const result = await validate(new XMLSerializer().serializeToString(doc), fileName);
+    if (result.valid)
+        issues.push({ title: 'Project is schema valid' });
+    return issues;
+}
+
+async function dAValidator(element) {
+    if (isTypeMissing(element))
+        return [
+            {
+                title: `validator.templates.missingAttribute, type, ${element.tagName}`,
+                message: `${element.tagName}`,
+            },
+        ];
+    const child = getTypeChild(element);
+    if (child === null)
+        return [
+            {
+                title: `validator.templates.missingReference, DO, ${element.getAttribute('name')}`,
+                message: `${element.tagName}`,
+            },
+        ];
+    return [];
+}
+
+async function getChildren(cdc, daName) {
+    var _a;
+    const nsd73 = await iec6185073;
+    const dataAttribute = (_a = nsd73
+        .querySelector(`CDC[name="${cdc}"] > DataAttribute[name="${daName}"]`)) === null || _a === void 0 ? void 0 : _a.getAttribute('type');
+    return Array.from(nsd73.querySelectorAll(`ConstructedAttributes > ConstructedAttribute[name="${dataAttribute}"] > SubDataAttribute[presCond="M"]`));
+}
+async function getServiceChildren(daName) {
+    const nsd81 = await iec6185081;
+    return Array.from(nsd81.querySelectorAll(`ServiceConstructedAttributes > ServiceConstructedAttribute[name="${daName}"] > ` +
+        ` SubDataAttribute[presCond="M"]`));
+}
+async function getMandatoryChildren(datype) {
+    var _a, _b;
+    const id = datype.getAttribute('id');
+    if (!id)
+        return [];
+    const dataAttribute = (_a = datype
+        .closest('DataTypeTemplates')) === null || _a === void 0 ? void 0 : _a.querySelector(`DOType > DA[type="${id}"]`);
+    const daName = dataAttribute === null || dataAttribute === void 0 ? void 0 : dataAttribute.getAttribute('name');
+    if (daName && ['Oper', 'SBOw', 'SBO', 'Cancel'].includes(daName))
+        return getServiceChildren(daName);
+    const cdc = (_b = dataAttribute === null || dataAttribute === void 0 ? void 0 : dataAttribute.parentElement) === null || _b === void 0 ? void 0 : _b.getAttribute('cdc');
+    return getChildren(cdc, daName);
+}
+async function missingMandatoryChildren$2(datype) {
+    const mandatoryChildren = await getMandatoryChildren(datype);
+    const mandatoryChildNames = mandatoryChildren.map(DA => DA.getAttribute('name'));
+    const missingDaNames = mandatoryChildNames.filter(da => !datype.querySelector(`BDA[name="${da}"]`));
+    return missingDaNames.map(missingDa => ({
+        validatorId: 'Template Validator',
+        title: `validator.templates.mandatoryChild, DAType, ${datype.getAttribute('id')}, BDA, ${missingDa}`,
+        message: `${datype.getAttribute('id')}`,
+    }));
+}
+async function dATypeValidator(datype) {
+    const errors = [];
+    if (datype.tagName !== 'DAType')
+        return [];
+    const missingChildren = await missingMandatoryChildren$2(datype);
+    const issuesChildren = await validateChildren(datype);
+    return errors.concat(missingChildren, issuesChildren);
+}
+
+async function dOValidator(element) {
+    if (isTypeMissing(element))
+        return [
+            {
+                title: `validator.templates.missingAttribute, type, ${element.tagName}`,
+                message: `${element.tagName}`,
+            },
+        ];
+    const child = getTypeChild(element);
+    if (child === null)
+        return [
+            {
+                title: `validator.templates.missingReference, DO, ${element.getAttribute('name')}`,
+                message: `${element.tagName}`,
+            },
+        ];
+    return [];
+}
+
+/* eslint-disable no-promise-executor-return */
+async function getSpecificDataObject(lnClass, doName) {
+    var _a;
+    if (!lnClass || !doName)
+        return null;
+    const lnodeclasses = getAdjacentClass(await iec6185074, lnClass);
+    return ((_a = lnodeclasses
+        .flatMap(lnodeclass => Array.from(lnodeclass.querySelectorAll(`DataObject`)))
+        .find(dataObject => dataObject.getAttribute('name') === doName)) !== null && _a !== void 0 ? _a : null);
+}
+async function getNsdReference(element) {
+    var _a;
+    const id = element.getAttribute('id');
+    if (!id)
+        return null;
+    const doorsdo = (_a = element
+        .closest('DataTypeTemplates')) === null || _a === void 0 ? void 0 : _a.querySelector(`LNodeType > DO[type="${id}"], LNodeType > SDO[type="${id}"]`);
+    const doName = doorsdo === null || doorsdo === void 0 ? void 0 : doorsdo.getAttribute('name');
+    const lNodeType = doorsdo === null || doorsdo === void 0 ? void 0 : doorsdo.parentElement;
+    const lnClass = lNodeType === null || lNodeType === void 0 ? void 0 : lNodeType.getAttribute('lnClass');
+    return getSpecificDataObject(lnClass, doName);
+}
+function getControlServicePresConditions(ctlModel) {
+    if (!ctlModel || ctlModel === 'status-only')
+        return [];
+    if (ctlModel.includes('direct'))
+        return ['MOctrl'];
+    if (ctlModel.includes('normal'))
+        return ['MOctrl', 'MOsbo', 'MOsboNormal'];
+    if (ctlModel.includes('enhanced'))
+        return ['MOctrl', 'MOsbo', 'MOsboEnhanced'];
+    return [];
+}
+async function getMandatoryDataAttribute(dotype, cdc) {
+    var _a, _b;
+    const nsd73 = await iec6185073;
+    const nsd81 = await iec6185081;
+    const dataAttributes = Array.from(nsd73.querySelectorAll(`CDC[name="${cdc}"] > DataAttribute[presCond="M"]`));
+    const servicePresConds = getControlServicePresConditions((_b = (_a = dotype.querySelector('DA[name="ctlModel"] > Val')) === null || _a === void 0 ? void 0 : _a.textContent) === null || _b === void 0 ? void 0 : _b.trim());
+    const serviceDataAttribute = Array.from(nsd81.querySelectorAll(`ServiceCDC[cdc="${cdc}"] > ServiceDataAttribute`)).filter(da => servicePresConds.includes(da.getAttribute('presCond')));
+    return dataAttributes.concat(serviceDataAttribute);
+}
+async function validateAttributes(dotype, cdc) {
+    const reference = await getNsdReference(dotype);
+    if (reference && cdc !== reference.getAttribute('type'))
+        return [
+            {
+                title: `validator.templates.incorrectAttribute , cdc, DOType`,
+                message: `${dotype.getAttribute('id')}`,
+            },
+        ];
+    return [];
+}
+async function missingMandatoryChildren$1(dotype, cdc) {
+    const errors = [];
+    const mandatorydas = (await getMandatoryDataAttribute(dotype, cdc)).map(DA => DA.getAttribute('name'));
+    mandatorydas.forEach(mandatoryda => {
+        if (!dotype.querySelector(`DA[name="${mandatoryda}"]`))
+            errors.push({
+                title: `validator.templates.mandatoryChild', Common Data Class, ${cdc}, DA, ${mandatoryda}`,
+                message: `${dotype.getAttribute('id')}`,
+            });
+    });
+    return errors;
+}
+async function dOTypeValidator(dotype) {
+    const errors = [];
+    if (dotype.tagName !== 'DOType')
+        return [];
+    const cdc = dotype.getAttribute('cdc');
+    if (!cdc)
+        return [
+            {
+                title: `validator.templates.missingAttribute, cdc, ${dotype.tagName}`,
+                message: `${dotype.getAttribute('id')}`,
+            },
+        ];
+    const incorrectAttributes = await validateAttributes(dotype, cdc);
+    const missingChildren = await missingMandatoryChildren$1(dotype, cdc);
+    const issuesChildren = await validateChildren(dotype);
+    return errors.concat(missingChildren, issuesChildren, incorrectAttributes);
+}
+
+async function getMandatoryDataObject(base) {
+    const lnodeclasses = getAdjacentClass(await iec6185074, base);
+    return lnodeclasses.flatMap(lnodeclass => Array.from(lnodeclass.querySelectorAll('DataObject[presCond="M"]')));
+}
+async function missingMandatoryChildren(lnodetype, lnClass) {
+    const errors = [];
+    const mandatorydos = await (await getMandatoryDataObject(lnClass)).map(DO => DO.getAttribute('name'));
+    mandatorydos.forEach(mandatorydo => {
+        if (!lnodetype.querySelector(`DO[name="${mandatorydo}"]`))
+            errors.push({
+                title: `validator.templates.mandatoryChild ${lnClass}, ${lnClass}, DO, ${mandatorydo}`,
+                message: `${lnClass} > ${mandatorydo}`,
+            });
+    });
+    return errors;
+}
+async function lNodeTypeValidator(element) {
+    const errors = [];
+    const lnClass = element.getAttribute('lnClass');
+    if (!lnClass)
+        return [
+            {
+                title: `validator.templates.missingAttribute, ${lnClass}, ${element.tagName}`,
+                message: `${lnClass}`,
+            },
+        ];
+    const missingChildren = await missingMandatoryChildren(element, lnClass);
+    const issuesChildren = await validateChildren(element);
+    return errors.concat(missingChildren, issuesChildren);
+}
+
+const iec6185074 = fetch('/public/xml/IEC_61850-7-4_2007B3.nsd')
+    .then(response => response.text())
+    .then(str => new DOMParser().parseFromString(str, 'application/xml'));
+const iec6185073 = fetch('/public/xml/IEC_61850-7-3_2007B3.nsd')
+    .then(response => response.text())
+    .then(str => new DOMParser().parseFromString(str, 'application/xml'));
+fetch('/public/xml/IEC_61850-7-2_2007B3.nsd')
+    .then(response => response.text())
+    .then(str => new DOMParser().parseFromString(str, 'application/xml'));
+const iec6185081 = fetch('/public/xml/IEC_61850-8-1_2003A2.nsd')
+    .then(response => response.text())
+    .then(str => new DOMParser().parseFromString(str, 'application/xml'));
+function isTypeMissing(element) {
+    const { tagName } = element;
+    const isTypeMandatory = tagName === 'DO' ||
+        tagName === 'SDO' ||
+        ((tagName === 'DA' || tagName === 'BDA') &&
+            (element.getAttribute('bType') === 'Enum' ||
+                element.getAttribute('bType') === 'Struct'));
+    const isTypeMissing = !element.getAttribute('type');
+    return isTypeMandatory && isTypeMissing;
+}
+function getTypeChild(element) {
+    var _a, _b;
+    const isStruct = element.getAttribute('bType') === 'Struct';
+    const isEnum = element.getAttribute('bType') === 'Enum';
+    const isDo = element.tagName === 'DO' || element.tagName === 'SDO';
+    const referenceTag = isDo
+        ? 'DOType'
+        : isStruct || isEnum
+            ? isStruct
+                ? 'DAType'
+                : 'EnumType'
+            : null;
+    if (!referenceTag)
+        return undefined;
+    return ((_b = (_a = element
+        .closest('DataTypeTemplates')) === null || _a === void 0 ? void 0 : _a.querySelector(`${referenceTag}[id="${element.getAttribute('type')}"]`)) !== null && _b !== void 0 ? _b : null);
+}
+function getAdjacentClass(nsd, base) {
+    var _a, _b;
+    if (base === '')
+        return [];
+    const adjacents = getAdjacentClass(nsd, (_b = (_a = nsd
+        .querySelector(`LNClass[name="${base}"], AbstractLNClass[name="${base}"]`)) === null || _a === void 0 ? void 0 : _a.getAttribute('base')) !== null && _b !== void 0 ? _b : '');
+    return Array.from(nsd.querySelectorAll(`LNClass[name="${base}"], AbstractLNClass[name="${base}"]`)).concat(adjacents);
+}
+async function validateChildren(element) {
+    const issues = [];
+    const children = Array.from(element.children);
+    for (const child of children) {
+        const validator = tagValidator[child.tagName];
+        if (!validator)
+            continue;
+        const childIssues = await validator(child);
+        if (childIssues.length)
+            for (const childIssue of childIssues)
+                issues.push(childIssue);
+    }
+    return issues;
+}
+const tagValidator = {
+    LNodeType: lNodeTypeValidator,
+    DOType: dOTypeValidator,
+    DAType: dATypeValidator,
+    DO: dOValidator,
+    SDO: dOValidator,
+    DA: dAValidator,
+    BDA: dAValidator,
+};
+
+async function* validateTemplates(doc) {
+    /*
+    const [version, revision, release] = [
+      doc.documentElement.getAttribute('version') ?? '',
+      doc.documentElement.getAttribute('revision') ?? '',
+      doc.documentElement.getAttribute('release') ?? '',
+    ]; */
+    /*
+    if (!(version === '2007' && revision === 'B' && Number(release) > 3)) {
+      dispatcher.dispatchEvent(
+        newIssueEvent({
+          validatorId: 'Template Validator',
+          title: 'diag.missingnsd',
+          message: '',
+        })
+      );
+      return;
+    } */
+    const data = doc.querySelector('DataTypeTemplates');
+    if (!data)
+        return;
+    const children = Array.from(data.children);
+    for (const child of children) {
+        const validator = tagValidator[child.tagName];
+        if (!validator)
+            continue;
+        const childIssues = validator(child);
+        yield childIssues;
+    }
 }
 
 /** An editor [[`plugin`]] to configure validators and display their issue centrally */
 class SclValidatingPlugin extends s {
-    validate() {
-        this.issues.clear();
-        validateSchema(this.doc, this.docName, this);
+    constructor() {
+        super(...arguments);
+        /** SCL change indicator */
+        this.editCount = 0;
+        this.schemaIssues = [];
+        this.templateIssues = [];
     }
-    onIssue(de) {
-        const issues = this.issues.get(de.detail.validatorId);
-        if (!issues)
-            this.issues.set(de.detail.validatorId, [de.detail]);
-        else
-            issues === null || issues === void 0 ? void 0 : issues.push(de.detail);
-        this.requestUpdate();
+    async validateSchema() {
+        this.schemaIssues.length = 0;
+        this.schemaIssues = await validateSchema(this.doc, this.docName);
+        this.requestUpdate('schemaIssues');
+    }
+    async validateTemplates() {
+        this.templateIssues.length = 0;
+        for await (const issue of validateTemplates(this.doc)) {
+            this.templateIssues.push(...issue);
+            this.requestUpdate('templateIssues');
+        }
     }
     async performUpdate() {
         // eslint-disable-next-line no-promise-executor-return
         await new Promise(resolve => requestAnimationFrame(() => resolve()));
         super.performUpdate();
-    }
-    constructor() {
-        super();
-        /** SCL change indicator */
-        this.editCount = 0;
-        this.issues = new Map();
-        this.addEventListener('issue', this.onIssue);
     }
     // eslint-disable-next-line class-methods-use-this
     renderIssueEntry(issue) {
@@ -12504,34 +12791,42 @@ class SclValidatingPlugin extends s {
         if (issues.length === 0)
             return [x ``];
         return [
-            x `<mwc-list-item noninteractive
-        >${issues[0].validatorId}</mwc-list-item
-      >`,
             x `<li divider padded role="separator"></li>`,
             ...issues.map(issue => this.renderIssueEntry(issue)),
         ];
     }
-    renderIssues() {
-        const issueItems = [];
-        this.issues.forEach(issues => {
-            this.renderValidatorsIssues(issues).forEach(issueItem => issueItems.push(issueItem));
-        });
-        return issueItems.length
-            ? issueItems
-            : x `<mwc-list-item disabled graphic="icon">
-          <span>'No validation results. Click in validate.'</span>
-          <mwc-icon slot="graphic">info</mwc-icon>
-        </mwc-list-item>`;
-    }
     render() {
-        return x `<mwc-button
-        label="validate"
-        @click="${this.validate}"
-      ></mwc-button
-      ><mwc-list id="content" wrapFocus>${this.renderIssues()}</mwc-list>`;
+        return x `<section>
+      <div>
+        <mwc-button
+          label="validate schema"
+          @click="${this.validateSchema}"
+        ></mwc-button
+        ><mwc-list id="content" wrapFocus
+          >${this.renderValidatorsIssues(this.schemaIssues)}</mwc-list
+        >
+      </div>
+      <div>
+        <mwc-button
+          label="validate templates"
+          @click="${this.validateTemplates}"
+        ></mwc-button
+        ><mwc-list id="content" wrapFocus
+          >${this.renderValidatorsIssues(this.templateIssues)}</mwc-list
+        >
+      </div>
+    </section>`;
     }
 }
-SclValidatingPlugin.styles = i$5 ``;
+SclValidatingPlugin.styles = i$5 `
+    section {
+      display: grid;
+      gap: 12px;
+      padding: 8px 12px 16px;
+      box-sizing: border-box;
+      grid-template-columns: repeat(auto-fit, minmax(316px, auto));
+    }
+  `;
 __decorate([
     e$4({ attribute: false })
 ], SclValidatingPlugin.prototype, "doc", void 0);
@@ -12543,7 +12838,10 @@ __decorate([
 ], SclValidatingPlugin.prototype, "editCount", void 0);
 __decorate([
     e$4()
-], SclValidatingPlugin.prototype, "issues", void 0);
+], SclValidatingPlugin.prototype, "schemaIssues", void 0);
+__decorate([
+    e$4()
+], SclValidatingPlugin.prototype, "templateIssues", void 0);
 
 export { SclValidatingPlugin as default };
 //# sourceMappingURL=scl-validating.js.map

@@ -11,14 +11,13 @@ export default class SclValidatingPlugin extends LitElement {
     docName: string;
     /** SCL change indicator */
     editCount: number;
-    issues: Map<string, IssueDetail[]>;
-    private validate;
-    private onIssue;
+    schemaIssues: IssueDetail[];
+    templateIssues: IssueDetail[];
+    private validateSchema;
+    private validateTemplates;
     performUpdate(): Promise<void>;
-    constructor();
     private renderIssueEntry;
     private renderValidatorsIssues;
-    private renderIssues;
     render(): TemplateResult;
     static styles: import("lit").CSSResult;
 }

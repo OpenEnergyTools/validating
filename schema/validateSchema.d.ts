@@ -1,2 +1,2 @@
-import { LitElement } from 'lit';
-export declare function validateSchema(doc: XMLDocument, docName: string, dispatcher: LitElement): Promise<void>;
+import { IssueDetail } from '../foundation/utils.js';
+export declare function validateSchema(doc: XMLDocument, docName: string): Promise<IssueDetail[]>;
