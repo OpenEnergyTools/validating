@@ -25,7 +25,7 @@ export interface ValidationResult {
     valid: boolean;
     loaded?: undefined;
 }
-export type Validator = (xml: string, xmlName: string) => Promise<ValidationResult>;
+export type Validator = (xml: string, xmlName: string, result: IssueDetail[]) => Promise<ValidationResult>;
 export type WorkerMessage = ValidationError | ValidationResult | LoadSchemaResult | string;
 export declare function isValidationResult(msg: WorkerMessage): msg is ValidationResult;
 export declare function isValidationError(msg: WorkerMessage): msg is ValidationError;
