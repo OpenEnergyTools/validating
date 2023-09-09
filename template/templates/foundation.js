@@ -3,16 +3,16 @@ import { dATypeValidator } from './datype.js';
 import { dOValidator } from './dosdo.js';
 import { dOTypeValidator } from './dotype.js';
 import { lNodeTypeValidator } from './lnodetype.js';
-export const iec6185074 = fetch(new URL('./IEC_61850-7-4_2007B3.nsd', import.meta.url))
+export const iec6185074 = fetch(new URL('../nsd/IEC_61850-7-4_2007B3.nsd', import.meta.url))
     .then(response => response.text())
     .then(str => new DOMParser().parseFromString(str, 'application/xml'));
-export const iec6185073 = fetch(new URL('./IEC_61850-7-3_2007B3.nsd', import.meta.url))
+export const iec6185073 = fetch(new URL('../nsd/IEC_61850-7-3_2007B3.nsd', import.meta.url))
     .then(response => response.text())
     .then(str => new DOMParser().parseFromString(str, 'application/xml'));
-export const iec6185072 = fetch(new URL('./IEC_61850-7-2_2007B3.nsd', import.meta.url))
+export const iec6185072 = fetch(new URL('../nsd/IEC_61850-7-2_2007B3.nsd', import.meta.url))
     .then(response => response.text())
     .then(str => new DOMParser().parseFromString(str, 'application/xml'));
-export const iec6185081 = fetch(new URL('./IEC_61850-8-1_2003A2.nsd', import.meta.url))
+export const iec6185081 = fetch(new URL('../nsd/IEC_61850-8-1_2003A2.nsd', import.meta.url))
     .then(response => response.text())
     .then(str => new DOMParser().parseFromString(str, 'application/xml'));
 export const serviceCDCs = [
