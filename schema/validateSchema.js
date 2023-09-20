@@ -1,8 +1,7 @@
-import { validate } from '../node_modules/@openenergytools/xml-schema-validator/dist/xml-schema-validator.js';
-import { getSchema } from './schemas.js';
-
 /* eslint-disable import/no-extraneous-dependencies */
-async function validateSchema(doc, docName) {
+import { validate } from '@openenergytools/xml-schema-validator';
+import { getSchema } from './schemas.js';
+export async function validateSchema(doc, docName) {
     var _a, _b, _c;
     let version = '2007';
     let revision = 'B';
@@ -21,6 +20,4 @@ async function validateSchema(doc, docName) {
         name: `SCL${version}${revision}${release}.xsd`,
     });
 }
-
-export { validateSchema };
 //# sourceMappingURL=validateSchema.js.map
