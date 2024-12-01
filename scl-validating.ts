@@ -59,7 +59,7 @@ export default class SclValidatingPlugin extends LitElement {
   @state() waitForTemplateRun = true;
 
   /** Whether schema validator shall run after each change to the doc */
-  @state() autoValidateSchema = true;
+  @state() autoValidateSchema = false;
 
   /** Whether template validator shall run after each change to the doc */
   @state() autoValidateTemplate = false;
@@ -235,7 +235,6 @@ export default class SclValidatingPlugin extends LitElement {
               <mwc-formfield label="Auto validate on change" alignEnd>
                 <mwc-switch
                   class="auto schema"
-                  selected
                   @click="${() => {
                     this.autoValidateSchema = !this.autoValidateSchema;
                   }}"
